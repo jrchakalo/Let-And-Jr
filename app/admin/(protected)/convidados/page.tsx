@@ -262,6 +262,8 @@ export default function ConvidadosPage() {
   }, [fetchFamilies]);
 
   useEffect(() => {
+    if (!supabase) return;
+
     const handleFocus = () => fetchFamilies();
     const handleVisibility = () => {
       if (document.visibilityState === "visible") fetchFamilies();

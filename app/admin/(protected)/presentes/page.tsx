@@ -256,6 +256,8 @@ export default function PresentesAdminPage() {
   }, [fetchGifts, fetchContributions]);
 
   useEffect(() => {
+    if (!supabase) return;
+
     const handleFocus = () => {
       fetchGifts();
       fetchContributions();

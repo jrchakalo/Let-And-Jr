@@ -658,6 +658,8 @@ function PresentesContent() {
   }, [fetchGifts]);
 
   useEffect(() => {
+    if (!supabase) return;
+
     const handleFocus = () => {
       fetchGifts(false);
     };
