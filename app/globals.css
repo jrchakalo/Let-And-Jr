@@ -1,0 +1,34 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@font-face {
+  font-family: "Brown Sugar";
+  src: local("Brown Sugar"),
+    url("/fonts/BrownSugar-Regular.woff2") format("woff2"),
+    url("/fonts/BrownSugar-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+
+@theme {
+  --color-cream: #faf8f2;
+  --color-navy: #283b63;
+  --font-brown-sugar: "Brown Sugar", cursive;
+  --font-ampersand: var(--font-alex-brush);
+  --font-serif: var(--font-brown-sugar);
+  --font-sans: var(--font-simonetta);
+  --font-display: var(--font-cormorant);
+}
+
+@layer base {
+  body {
+    @apply bg-cream text-navy font-sans;
+  }
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-serif font-normal tracking-widest uppercase;
+  }
+}
