@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
       accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN,
     });
 
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL?.trim() || req.nextUrl.origin;
 
     const preference = new Preference(mp);
 

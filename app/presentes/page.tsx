@@ -641,6 +641,9 @@ function PresentesContent() {
 
   const mpStatus = searchParams.get("status");
   const mpGiftId = searchParams.get("gift");
+  const [paymentBannerStatus, setPaymentBannerStatus] = useState<
+    "success" | "failure" | "pending" | null
+  >(null);
 
   const fetchGifts = useCallback(async (showLoader = true) => {
     if (showLoader) setLoading(true);
@@ -695,6 +698,30 @@ function PresentesContent() {
       );
     }
   }, [mpStatus, mpGiftId]);
+
+  useEffect(() => {
+    if (mpStatus !== "success" && mpStatus !== "failure" && mpStatus !== "pending") {
+      return;
+    }
+
+    setPaymentBannerStatus(mpStatus);
+
+    const clearUrlTimer = window.setTimeout(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("status");
+      url.searchParams.delete("gift");
+      window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    }, 400);
+
+    const hideBannerTimer = window.setTimeout(() => {
+      setPaymentBannerStatus(null);
+    }, 12000);
+
+    return () => {
+      window.clearTimeout(clearUrlTimer);
+      window.clearTimeout(hideBannerTimer);
+    };
+  }, [mpStatus]);
 
   function handleGiftUpdated(updated: Gift) {
     setGifts((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
@@ -784,7 +811,7 @@ function PresentesContent() {
         </section>
 
         {/* ─── MP status banner ────────────────────────── */}
-        {mpStatus === "success" && (
+        {paymentBannerStatus === "success" && (
           <div className="w-full bg-green-50 border-b border-green-200 py-4 px-6 text-center">
             <p className="text-green-900 font-display text-base mb-1">Obrigada!</p>
             <p className="text-green-800 text-sm font-display">
@@ -792,14 +819,14 @@ function PresentesContent() {
             </p>
           </div>
         )}
-        {mpStatus === "failure" && (
+        {paymentBannerStatus === "failure" && (
           <div className="w-full bg-red-50 border-b border-red-200 py-4 px-6 text-center">
             <p className="text-red-700 text-sm font-display">
               Pagamento não concluído. Tente novamente.
             </p>
           </div>
         )}
-        {mpStatus === "pending" && (
+        {paymentBannerStatus === "pending" && (
           <div className="w-full bg-yellow-50 border-b border-yellow-200 py-4 px-6 text-center">
             <p className="text-yellow-800 text-sm font-display">
               Pagamento pendente. Você será notificado quando for aprovado.

@@ -5,20 +5,47 @@ import { createServerClient } from "@/lib/supabase/server";
 // POST /api/mercadopago/webhook
 // Receives IPN/webhook notifications from Mercado Pago and marks gifts as PAID.
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => ({} as Record<string, unknown>));
 
-  // Mercado Pago sends: { type: "payment", data: { id: "..." } }
-  if (body.type !== "payment" || !body.data?.id) {
+  const queryType =
+    req.nextUrl.searchParams.get("type") ??
+    req.nextUrl.searchParams.get("topic") ??
+    "";
+  const queryPaymentId =
+    req.nextUrl.searchParams.get("data.id") ?? req.nextUrl.searchParams.get("id");
+
+  const bodyType =
+    (typeof body.type === "string" && body.type) ||
+    (typeof body.topic === "string" && body.topic) ||
+    (typeof body.action === "string" && body.action) ||
+    "";
+
+  const bodyPaymentId =
+    typeof body.data === "object" && body.data !== null && "id" in body.data
+      ? String((body.data as { id?: string | number }).id ?? "")
+      : typeof body.id === "string" || typeof body.id === "number"
+      ? String(body.id)
+      : null;
+
+  const eventType = (bodyType || queryType).toLowerCase();
+  const paymentId = bodyPaymentId || queryPaymentId;
+
+  if (!eventType.includes("payment") || !paymentId) {
+    return NextResponse.json({ received: true });
+  }
+
+  if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
+    console.error("[MP webhook] MERCADOPAGO_ACCESS_TOKEN não configurado.");
     return NextResponse.json({ received: true });
   }
 
   const mp = new MercadoPagoConfig({
-    accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN!,
+    accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN,
   });
 
   try {
     const payment = new Payment(mp);
-    const paymentData = await payment.get({ id: body.data.id });
+    const paymentData = await payment.get({ id: paymentId });
 
     if (paymentData.status === "approved") {
       const ref = paymentData.external_reference;
@@ -39,7 +66,7 @@ export async function POST(req: NextRequest) {
             .eq("id", giftId)
             .single();
 
-          if (gift) {
+          if (gift && gift.cota_value) {
             const newPaid = (gift.cotas_paid ?? 0) + cotaQty;
             const totalCotas = Math.ceil(gift.price / gift.cota_value);
             const nowComplete = newPaid >= totalCotas;
@@ -103,8 +130,11 @@ export async function POST(req: NextRequest) {
         }
       }
     }
-  } catch {
-    // Log silently — never return a non-200 to MP to avoid retries
+  } catch (error) {
+    console.error("[MP webhook] erro ao processar pagamento", {
+      paymentId,
+      error,
+    });
   }
 
   return NextResponse.json({ received: true });
