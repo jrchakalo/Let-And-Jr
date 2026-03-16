@@ -1,12 +1,177 @@
 import { NextRequest, NextResponse } from "next/server";
-import { MercadoPagoConfig, Payment } from "mercadopago";
+import { MercadoPagoConfig, MerchantOrder, Payment } from "mercadopago";
 import { createServerClient } from "@/lib/supabase/server";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
-// POST /api/mercadopago/webhook
-// Receives IPN/webhook notifications from Mercado Pago and marks gifts as PAID.
-export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => ({} as Record<string, unknown>));
+function parseSignatureHeader(signatureHeader: string) {
+  const parts = signatureHeader.split(",").map((part) => part.trim());
+  const values = new Map<string, string>();
 
+  for (const part of parts) {
+    const [key, value] = part.split("=");
+    if (key && value) values.set(key, value);
+  }
+
+  return {
+    ts: values.get("ts") ?? null,
+    v1: values.get("v1") ?? null,
+  };
+}
+
+function secureEquals(a: string, b: string) {
+  const aBuffer = Buffer.from(a, "utf8");
+  const bBuffer = Buffer.from(b, "utf8");
+  if (aBuffer.length !== bBuffer.length) return false;
+  return timingSafeEqual(aBuffer, bBuffer);
+}
+
+function isValidMercadoPagoSignature(req: NextRequest) {
+  const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
+  if (!secret) {
+    console.error("[MP webhook] MERCADOPAGO_WEBHOOK_SECRET não configurado.");
+    return false;
+  }
+
+  const signatureHeader = req.headers.get("x-signature");
+  const requestId = req.headers.get("x-request-id");
+  const dataId =
+    req.nextUrl.searchParams.get("data.id") ?? req.nextUrl.searchParams.get("id");
+
+  if (!signatureHeader || !requestId || !dataId) {
+    return false;
+  }
+
+  const { ts, v1 } = parseSignatureHeader(signatureHeader);
+  if (!ts || !v1) return false;
+
+  const manifest = `id:${dataId.toLowerCase()};request-id:${requestId};ts:${ts};`;
+  const expectedV1 = createHmac("sha256", secret)
+    .update(manifest)
+    .digest("hex");
+
+  return secureEquals(expectedV1, v1);
+}
+
+async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["get"]>>) {
+  const ref = paymentData.external_reference;
+  if (!ref) return;
+
+  const mercadopagoPaymentId =
+    paymentData.id !== undefined && paymentData.id !== null
+      ? String(paymentData.id)
+      : null;
+  if (!mercadopagoPaymentId) return;
+
+  const supabase = createServerClient();
+
+  const { data: existing } = await supabase
+    .from("gift_contributions")
+    .select("id")
+    .eq("mercadopago_payment_id", mercadopagoPaymentId)
+    .maybeSingle();
+
+  if (existing) {
+    return;
+  }
+
+  const parts = ref.split("|");
+  const giftId = parts[0];
+  const isCota = parts[1] === "cota";
+  const cotaQty = isCota ? parseInt(parts[2] ?? "1", 10) : 0;
+
+  if (isCota && cotaQty > 0) {
+    const { data: gift } = await supabase
+      .from("gifts")
+      .select("cotas_paid, price, cota_value")
+      .eq("id", giftId)
+      .single();
+
+    if (gift && gift.cota_value) {
+      const { data: contribution } = await supabase
+        .from("gift_contributions")
+        .upsert(
+          {
+            gift_id: giftId,
+            contributor_name:
+              [paymentData.payer?.first_name, paymentData.payer?.last_name]
+                .filter(Boolean)
+                .join(" ") || "Anônimo",
+            contributor_email: paymentData.payer?.email ?? null,
+            contribution_type: "MERCADOPAGO_COTA",
+            quantity: cotaQty,
+            amount: paymentData.transaction_amount
+              ? Number(paymentData.transaction_amount)
+              : Number(gift.cota_value) * cotaQty,
+            status: "CONFIRMED",
+            mercadopago_payment_id: mercadopagoPaymentId,
+          },
+          { onConflict: "mercadopago_payment_id", ignoreDuplicates: true }
+        )
+        .select("id")
+        .maybeSingle();
+
+      if (!contribution) {
+        return;
+      }
+
+      const newPaid = (gift.cotas_paid ?? 0) + cotaQty;
+      const totalCotas = Math.ceil(gift.price / gift.cota_value);
+      const nowComplete = newPaid >= totalCotas;
+
+      await supabase
+        .from("gifts")
+        .update({
+          cotas_paid: newPaid,
+          reserved_by_name: paymentData.payer?.first_name ?? "Anônimo",
+          ...(nowComplete ? { status: "PAID" } : {}),
+        })
+        .eq("id", giftId);
+    }
+
+    return;
+  }
+
+  const { data: contribution } = await supabase
+    .from("gift_contributions")
+    .upsert(
+      {
+        gift_id: giftId,
+        contributor_name:
+          [paymentData.payer?.first_name, paymentData.payer?.last_name]
+            .filter(Boolean)
+            .join(" ") || "Anônimo",
+        contributor_email: paymentData.payer?.email ?? null,
+        contribution_type: "MERCADOPAGO_GIFT",
+        quantity: 1,
+        amount: paymentData.transaction_amount
+          ? Number(paymentData.transaction_amount)
+          : null,
+        status: "CONFIRMED",
+        mercadopago_payment_id: mercadopagoPaymentId,
+      },
+      { onConflict: "mercadopago_payment_id", ignoreDuplicates: true }
+    )
+    .select("id")
+    .maybeSingle();
+
+  if (!contribution) {
+    return;
+  }
+
+  await supabase
+    .from("gifts")
+    .update({
+      status: "PAID",
+      reserved_by_name: paymentData.payer?.first_name ?? "Anônimo",
+    })
+    .eq("id", giftId)
+    .in("status", ["AVAILABLE", "RESERVED"]);
+}
+
+async function processMercadoPagoNotification(
+  req: NextRequest,
+  body: Record<string, unknown>
+) {
   const queryType =
     req.nextUrl.searchParams.get("type") ??
     req.nextUrl.searchParams.get("topic") ??
@@ -30,7 +195,7 @@ export async function POST(req: NextRequest) {
   const eventType = (bodyType || queryType).toLowerCase();
   const paymentId = bodyPaymentId || queryPaymentId;
 
-  if (!eventType.includes("payment") || !paymentId) {
+  if (!paymentId) {
     return NextResponse.json({ received: true });
   }
 
@@ -45,89 +210,30 @@ export async function POST(req: NextRequest) {
 
   try {
     const payment = new Payment(mp);
-    const paymentData = await payment.get({ id: paymentId });
+    if (eventType.includes("merchant_order")) {
+      const merchantOrder = new MerchantOrder(mp);
+      const orderData = await merchantOrder.get({
+        merchantOrderId: Number(paymentId),
+      });
 
-    if (paymentData.status === "approved") {
-      const ref = paymentData.external_reference;
-      if (ref) {
-        const supabase = createServerClient();
+      const approvedPaymentIds = (orderData.payments ?? [])
+        .filter((p) => p.status === "approved" && p.id)
+        .map((p) => String(p.id));
 
-        // Check if this is a cota payment: "giftId|cota|qty"
-        const parts = ref.split("|");
-        const giftId = parts[0];
-        const isCota = parts[1] === "cota";
-        const cotaQty = isCota ? parseInt(parts[2] ?? "1", 10) : 0;
-
-        if (isCota && cotaQty > 0) {
-          // Fetch current gift to compute new total
-          const { data: gift } = await supabase
-            .from("gifts")
-            .select("cotas_paid, price, cota_value")
-            .eq("id", giftId)
-            .single();
-
-          if (gift && gift.cota_value) {
-            const newPaid = (gift.cotas_paid ?? 0) + cotaQty;
-            const totalCotas = Math.ceil(gift.price / gift.cota_value);
-            const nowComplete = newPaid >= totalCotas;
-            await supabase
-              .from("gifts")
-              .update({
-                cotas_paid: newPaid,
-                reserved_by_name: paymentData.payer?.first_name ?? "Anônimo",
-                ...(nowComplete ? { status: "PAID" } : {}),
-              })
-              .eq("id", giftId);
-
-            await supabase.from("gift_contributions").upsert(
-              {
-                gift_id: giftId,
-                contributor_name:
-                  [paymentData.payer?.first_name, paymentData.payer?.last_name]
-                    .filter(Boolean)
-                    .join(" ") || "Anônimo",
-                contributor_email: paymentData.payer?.email ?? null,
-                contribution_type: "MERCADOPAGO_COTA",
-                quantity: cotaQty,
-                amount: paymentData.transaction_amount
-                  ? Number(paymentData.transaction_amount)
-                  : Number(gift.cota_value) * cotaQty,
-                status: "CONFIRMED",
-                mercadopago_payment_id: String(paymentData.id),
-              },
-              { onConflict: "mercadopago_payment_id" }
-            );
-          }
-        } else {
-          // Regular gift: mark fully paid
-          await supabase
-            .from("gifts")
-            .update({
-              status: "PAID",
-              reserved_by_name: paymentData.payer?.first_name ?? "Anônimo",
-            })
-            .eq("id", giftId)
-            .in("status", ["AVAILABLE", "RESERVED"]); // idempotent
-
-          await supabase.from("gift_contributions").upsert(
-            {
-              gift_id: giftId,
-              contributor_name:
-                [paymentData.payer?.first_name, paymentData.payer?.last_name]
-                  .filter(Boolean)
-                  .join(" ") || "Anônimo",
-              contributor_email: paymentData.payer?.email ?? null,
-              contribution_type: "MERCADOPAGO_GIFT",
-              quantity: 1,
-              amount: paymentData.transaction_amount
-                ? Number(paymentData.transaction_amount)
-                : null,
-              status: "CONFIRMED",
-              mercadopago_payment_id: String(paymentData.id),
-            },
-            { onConflict: "mercadopago_payment_id" }
-          );
+      for (const approvedPaymentId of approvedPaymentIds) {
+        const paymentData = await payment.get({ id: approvedPaymentId });
+        if (paymentData.status === "approved") {
+          await persistApprovedPayment(paymentData);
         }
+      }
+
+      return NextResponse.json({ received: true });
+    }
+
+    if (eventType.includes("payment")) {
+      const paymentData = await payment.get({ id: paymentId });
+      if (paymentData.status === "approved") {
+        await persistApprovedPayment(paymentData);
       }
     }
   } catch (error) {
@@ -138,4 +244,19 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ received: true });
+}
+
+// POST /api/mercadopago/webhook
+// Receives IPN/webhook notifications from Mercado Pago and marks gifts as PAID.
+export async function POST(req: NextRequest) {
+  if (!isValidMercadoPagoSignature(req)) {
+    return NextResponse.json({ error: "Assinatura inválida." }, { status: 401 });
+  }
+
+  const body = await req.json().catch(() => ({} as Record<string, unknown>));
+  return processMercadoPagoNotification(req, body);
+}
+
+export async function GET(req: NextRequest) {
+  return processMercadoPagoNotification(req, {});
 }

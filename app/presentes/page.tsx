@@ -641,6 +641,7 @@ function PresentesContent() {
 
   const mpStatus = searchParams.get("status");
   const mpGiftId = searchParams.get("gift");
+  const mpPaymentId = searchParams.get("payment_id");
   const [paymentBannerStatus, setPaymentBannerStatus] = useState<
     "success" | "failure" | "pending" | null
   >(null);
@@ -722,6 +723,19 @@ function PresentesContent() {
       window.clearTimeout(hideBannerTimer);
     };
   }, [mpStatus]);
+
+  useEffect(() => {
+    if (!mpPaymentId) return;
+    if (mpStatus !== "success" && mpStatus !== "pending") return;
+
+    const timer = window.setTimeout(() => {
+      void fetch(`/api/mercadopago/webhook?type=payment&id=${encodeURIComponent(mpPaymentId)}`, {
+        method: "GET",
+      });
+    }, 600);
+
+    return () => window.clearTimeout(timer);
+  }, [mpPaymentId, mpStatus]);
 
   function handleGiftUpdated(updated: Gift) {
     setGifts((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
