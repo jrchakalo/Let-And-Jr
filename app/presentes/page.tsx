@@ -982,7 +982,7 @@ function PresentesContent() {
         </section>
 
         {/* ─── MP status banner ────────────────────────── */}
-        {paymentBannerStatus === "success" && (
+        {paymentBannerStatus === "success" && !thankYouMessage && (
           <div className="w-full bg-green-50 border-b border-green-200 py-4 px-6 text-center">
             <p className="text-green-900 font-display text-base mb-1">Obrigada!</p>
             <p className="text-green-800 text-sm font-display">
