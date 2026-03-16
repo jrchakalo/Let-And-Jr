@@ -804,15 +804,41 @@ function PresentesContent() {
 
     const timer = window.setTimeout(() => {
       void (async () => {
-        await fetch(`/api/mercadopago/webhook?type=payment&id=${encodeURIComponent(mpPaymentId)}`, {
+        const res = await fetch(`/api/mercadopago/webhook?type=payment&id=${encodeURIComponent(mpPaymentId)}`, {
           method: "GET",
         });
+        const payload = (await res.json().catch(() => null)) as
+          | {
+              approved?: boolean;
+              giftId?: string | null;
+              isCota?: boolean;
+            }
+          | null;
+
+        if (payload?.approved) {
+          const qtyParsed = mpQtyRaw ? Number.parseInt(mpQtyRaw, 10) : 1;
+          const qty = Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 1;
+          const resolvedGiftId = payload.giftId ?? mpGiftId;
+          const resolvedGift = resolvedGiftId
+            ? gifts.find((item) => item.id === resolvedGiftId)
+            : null;
+          const giftName = resolvedGift?.name ?? "presente";
+          const isCotaPayment = payload.isCota ?? mpKind === "cota";
+
+          setPaymentBannerStatus("success");
+          setThankYouMessage(
+            isCotaPayment
+              ? `Obrigado! Sua contribuição de ${qty} cota${qty > 1 ? "s" : ""} para "${giftName}" foi registrada com carinho.`
+              : `Obrigado! Seu presente "${giftName}" foi registrado com carinho.`
+          );
+        }
+
         await fetchGifts(false);
       })();
     }, 600);
 
     return () => window.clearTimeout(timer);
-  }, [fetchGifts, mpPaymentId, mpStatus]);
+  }, [fetchGifts, gifts, mpGiftId, mpKind, mpPaymentId, mpQtyRaw, mpStatus]);
 
   useEffect(() => {
     if (mpStatus !== "success") return;

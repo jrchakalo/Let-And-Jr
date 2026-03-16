@@ -88,13 +88,17 @@ function isValidMercadoPagoSignature(req: NextRequest) {
 
 async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["get"]>>) {
   const ref = paymentData.external_reference;
-  if (!ref) return;
+  if (!ref) {
+    return { approved: false, persisted: false, giftId: null as string | null, isCota: false };
+  }
 
   const mercadopagoPaymentId =
     paymentData.id !== undefined && paymentData.id !== null
       ? String(paymentData.id)
       : null;
-  if (!mercadopagoPaymentId) return;
+  if (!mercadopagoPaymentId) {
+    return { approved: false, persisted: false, giftId: null as string | null, isCota: false };
+  }
 
   const supabase = createServerClient();
 
@@ -235,7 +239,7 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
       await reconcileRegularGift();
     }
 
-    return;
+    return { approved: true, persisted: true, giftId, isCota };
   }
 
   if (isCota && cotaQty > 0) {
@@ -273,9 +277,16 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
         giftId,
         cotaQty,
       });
+
+      return {
+        approved: true,
+        persisted: contributionPersisted,
+        giftId,
+        isCota,
+      };
     }
 
-    return;
+    return { approved: true, persisted: false, giftId, isCota };
   }
 
   const contributionPersisted = await ensureContribution({
@@ -304,6 +315,13 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
     mercadopagoPaymentId,
     giftId,
   });
+
+  return {
+    approved: true,
+    persisted: contributionPersisted,
+    giftId,
+    isCota,
+  };
 }
 
 async function processMercadoPagoNotification(
@@ -334,12 +352,12 @@ async function processMercadoPagoNotification(
   const paymentId = bodyPaymentId || queryPaymentId;
 
   if (!paymentId) {
-    return NextResponse.json({ received: true });
+    return NextResponse.json({ received: true, approved: false, paymentId: null });
   }
 
   if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
     console.error("[MP webhook] MERCADOPAGO_ACCESS_TOKEN não configurado.");
-    return NextResponse.json({ received: true });
+    return NextResponse.json({ received: true, approved: false, paymentId });
   }
 
   const mp = new MercadoPagoConfig({
@@ -358,21 +376,51 @@ async function processMercadoPagoNotification(
         .filter((p) => p.status === "approved" && p.id)
         .map((p) => String(p.id));
 
+      let anyApproved = false;
+      let lastResult: {
+        approved: boolean;
+        persisted: boolean;
+        giftId: string | null;
+        isCota: boolean;
+      } | null = null;
+
       for (const approvedPaymentId of approvedPaymentIds) {
         const paymentData = await payment.get({ id: approvedPaymentId });
         if (paymentData.status === "approved") {
-          await persistApprovedPayment(paymentData);
+          anyApproved = true;
+          lastResult = await persistApprovedPayment(paymentData);
         }
       }
 
-      return NextResponse.json({ received: true });
+      return NextResponse.json({
+        received: true,
+        approved: anyApproved,
+        paymentId,
+        giftId: lastResult?.giftId ?? null,
+        isCota: lastResult?.isCota ?? false,
+        persisted: lastResult?.persisted ?? false,
+      });
     }
 
     if (eventType.includes("payment")) {
       const paymentData = await payment.get({ id: paymentId });
       if (paymentData.status === "approved") {
-        await persistApprovedPayment(paymentData);
+        const result = await persistApprovedPayment(paymentData);
+        return NextResponse.json({
+          received: true,
+          approved: true,
+          paymentId,
+          giftId: result.giftId,
+          isCota: result.isCota,
+          persisted: result.persisted,
+        });
       }
+
+      return NextResponse.json({
+        received: true,
+        approved: false,
+        paymentId,
+      });
     }
   } catch (error) {
     console.error("[MP webhook] erro ao processar pagamento", {
@@ -381,7 +429,7 @@ async function processMercadoPagoNotification(
     });
   }
 
-  return NextResponse.json({ received: true });
+  return NextResponse.json({ received: true, approved: false, paymentId });
 }
 
 // POST /api/mercadopago/webhook

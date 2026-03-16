@@ -332,6 +332,25 @@ export default function PresentesAdminPage() {
     MANUAL_COTA: "Cota manual",
   };
 
+  function displayContributionEmail(email: string | null) {
+    if (!email) return "-";
+    const trimmed = email.trim();
+    if (!trimmed.includes("@")) return "-";
+    return trimmed;
+  }
+
+  function contributionGiftStatus(c: GiftContribution) {
+    if (!c.gift?.status) return "-";
+    const isCotaContribution =
+      c.contribution_type === "MERCADOPAGO_COTA" || c.contribution_type === "MANUAL_COTA";
+
+    if (isCotaContribution && c.gift.status === "AVAILABLE") {
+      return "Cota recebida";
+    }
+
+    return giftStatusLabel[c.gift.status];
+  }
+
   return (
     <div className="flex flex-col gap-6">
       {(showForm || editingGift) && (
@@ -439,11 +458,11 @@ export default function PresentesAdminPage() {
               {contributions.map((c) => (
                 <tr key={c.id} className="border-b border-navy/5">
                   <td className="py-2 pr-3 text-sm text-navy/80">{c.contributor_name}</td>
-                  <td className="py-2 pr-3 text-xs text-navy/60">{c.contributor_email ?? "—"}</td>
+                  <td className="py-2 pr-3 text-xs text-navy/60">{displayContributionEmail(c.contributor_email)}</td>
                   <td className="py-2 pr-3 text-xs text-navy/70">{c.gift?.name ?? c.gift_id}</td>
                   <td className="py-2 pr-3 text-xs text-navy/60">{deliveryLabel[c.contribution_type]}</td>
                   <td className="py-2 pr-3 text-xs text-navy/60">
-                    {c.gift?.status ? giftStatusLabel[c.gift.status] : "—"}
+                    {contributionGiftStatus(c)}
                   </td>
                   <td className="py-2 pr-3 text-xs text-navy/60">{c.quantity}</td>
                   <td className="py-2 pr-3 text-xs text-navy/60">
@@ -452,7 +471,7 @@ export default function PresentesAdminPage() {
                           style: "currency",
                           currency: "BRL",
                         }).format(c.amount)
-                      : "—"}
+                      : "-"}
                   </td>
                   <td className="py-2 pr-3 text-xs text-navy/50">
                     {new Date(c.created_at).toLocaleString("pt-BR")}
