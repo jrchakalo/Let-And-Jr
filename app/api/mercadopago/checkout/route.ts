@@ -134,13 +134,20 @@ export async function POST(req: NextRequest) {
           email: payerEmail.trim(),
         },
         back_urls: {
-          success: `${baseUrl}/presentes?status=success&gift=${giftId}`,
+          success: `${baseUrl}/presentes?status=success&gift=${giftId}&kind=${gift.is_cota ? "cota" : "gift"}&qty=${itemQuantity}`,
           failure: `${baseUrl}/presentes?status=failure&gift=${giftId}`,
-          pending: `${baseUrl}/presentes?status=pending&gift=${giftId}`,
+          pending: `${baseUrl}/presentes?status=pending&gift=${giftId}&kind=${gift.is_cota ? "cota" : "gift"}&qty=${itemQuantity}`,
         },
         auto_return: "approved",
         notification_url: `${baseUrl}/api/mercadopago/webhook?source_news=webhooks`,
         external_reference: gift.is_cota ? `${giftId}|cota|${itemQuantity}` : giftId,
+        metadata: {
+          gift_id: giftId,
+          payer_name: payerName.trim(),
+          payer_email: payerEmail.trim(),
+          contribution_kind: gift.is_cota ? "cota" : "gift",
+          cota_qty: itemQuantity,
+        },
         statement_descriptor: "LETICIA E JUNIOR",
       },
     });

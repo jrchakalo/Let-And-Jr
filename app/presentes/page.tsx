@@ -642,9 +642,12 @@ function PresentesContent() {
   const mpStatus = searchParams.get("status");
   const mpGiftId = searchParams.get("gift");
   const mpPaymentId = searchParams.get("payment_id");
+  const mpKind = searchParams.get("kind");
+  const mpQtyRaw = searchParams.get("qty");
   const [paymentBannerStatus, setPaymentBannerStatus] = useState<
     "success" | "failure" | "pending" | null
   >(null);
+  const [thankYouMessage, setThankYouMessage] = useState<string | null>(null);
 
   const fetchGifts = useCallback(async (showLoader = true) => {
     if (showLoader) setLoading(true);
@@ -729,13 +732,32 @@ function PresentesContent() {
     if (mpStatus !== "success" && mpStatus !== "pending") return;
 
     const timer = window.setTimeout(() => {
-      void fetch(`/api/mercadopago/webhook?type=payment&id=${encodeURIComponent(mpPaymentId)}`, {
-        method: "GET",
-      });
+      void (async () => {
+        await fetch(`/api/mercadopago/webhook?type=payment&id=${encodeURIComponent(mpPaymentId)}`, {
+          method: "GET",
+        });
+        await fetchGifts(false);
+      })();
     }, 600);
 
     return () => window.clearTimeout(timer);
-  }, [mpPaymentId, mpStatus]);
+  }, [fetchGifts, mpPaymentId, mpStatus]);
+
+  useEffect(() => {
+    if (mpStatus !== "success") return;
+
+    const qtyParsed = mpQtyRaw ? Number.parseInt(mpQtyRaw, 10) : 1;
+    const qty = Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 1;
+    const isCota = mpKind === "cota";
+    const gift = mpGiftId ? gifts.find((item) => item.id === mpGiftId) : null;
+    const giftName = gift?.name ?? "presente";
+
+    const message = isCota
+      ? `Obrigado! Sua contribuição de ${qty} cota${qty > 1 ? "s" : ""} para "${giftName}" foi registrada com carinho.`
+      : `Obrigado! Seu presente "${giftName}" foi registrado com carinho.`;
+
+    setThankYouMessage(message);
+  }, [gifts, mpGiftId, mpKind, mpQtyRaw, mpStatus]);
 
   function handleGiftUpdated(updated: Gift) {
     setGifts((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
@@ -845,6 +867,11 @@ function PresentesContent() {
             <p className="text-yellow-800 text-sm font-display">
               Pagamento pendente. Você será notificado quando for aprovado.
             </p>
+          </div>
+        )}
+        {thankYouMessage && (
+          <div className="w-full bg-green-50 border-b border-green-200 py-4 px-6 text-center">
+            <p className="text-green-900 text-sm font-display">{thankYouMessage}</p>
           </div>
         )}
 

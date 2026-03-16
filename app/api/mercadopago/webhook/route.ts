@@ -98,6 +98,21 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
 
   const supabase = createServerClient();
 
+  const metadata =
+    paymentData.metadata && typeof paymentData.metadata === "object"
+      ? (paymentData.metadata as Record<string, unknown>)
+      : {};
+  const metadataPayerName =
+    typeof metadata.payer_name === "string" ? metadata.payer_name.trim() : "";
+  const metadataPayerEmail =
+    typeof metadata.payer_email === "string" ? metadata.payer_email.trim() : null;
+  const contributorName =
+    [paymentData.payer?.first_name, paymentData.payer?.last_name]
+      .filter(Boolean)
+      .join(" ")
+      .trim() || metadataPayerName || "Anônimo";
+  const contributorEmail = paymentData.payer?.email ?? metadataPayerEmail ?? null;
+
   const parts = ref.split("|");
   const giftId = parts[0];
   const isCota = parts[1] === "cota";
@@ -108,7 +123,7 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
       .from("gifts")
       .update({
         status: "PAID",
-        reserved_by_name: paymentData.payer?.first_name ?? "Anônimo",
+        reserved_by_name: contributorName,
       })
       .eq("id", giftId)
       .in("status", ["AVAILABLE", "RESERVED", "PAID"]);
@@ -145,7 +160,7 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
       .from("gifts")
       .update({
         cotas_paid: totalPaid,
-        reserved_by_name: paymentData.payer?.first_name ?? "Anônimo",
+        reserved_by_name: contributorName,
         ...(nowComplete ? { status: "PAID" } : {}),
       })
       .eq("id", giftId);
@@ -191,11 +206,8 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
         .upsert(
           {
             gift_id: giftId,
-            contributor_name:
-              [paymentData.payer?.first_name, paymentData.payer?.last_name]
-                .filter(Boolean)
-                .join(" ") || "Anônimo",
-            contributor_email: paymentData.payer?.email ?? null,
+            contributor_name: contributorName,
+            contributor_email: contributorEmail,
             contribution_type: "MERCADOPAGO_COTA",
             quantity: cotaQty,
             amount: paymentData.transaction_amount
@@ -204,18 +216,24 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
             status: "CONFIRMED",
             mercadopago_payment_id: mercadopagoPaymentId,
           },
-          { onConflict: "mercadopago_payment_id", ignoreDuplicates: true }
+          { onConflict: "mercadopago_payment_id" }
         )
         .select("id")
         .maybeSingle();
 
       if (!contribution) {
-        console.info("[MP webhook] contribuição cota já existente", {
-          mercadopagoPaymentId,
-          giftId,
-        });
-        await reconcileCotaGift();
-        return;
+        const { data: ensured } = await supabase
+          .from("gift_contributions")
+          .select("id")
+          .eq("mercadopago_payment_id", mercadopagoPaymentId)
+          .maybeSingle();
+
+        if (!ensured) {
+          console.warn("[MP webhook] falha ao persistir contribuição cota", {
+            mercadopagoPaymentId,
+            giftId,
+          });
+        }
       }
 
       await reconcileCotaGift();
@@ -235,11 +253,8 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
     .upsert(
       {
         gift_id: giftId,
-        contributor_name:
-          [paymentData.payer?.first_name, paymentData.payer?.last_name]
-            .filter(Boolean)
-            .join(" ") || "Anônimo",
-        contributor_email: paymentData.payer?.email ?? null,
+        contributor_name: contributorName,
+        contributor_email: contributorEmail,
         contribution_type: "MERCADOPAGO_GIFT",
         quantity: 1,
         amount: paymentData.transaction_amount
@@ -248,18 +263,24 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
         status: "CONFIRMED",
         mercadopago_payment_id: mercadopagoPaymentId,
       },
-      { onConflict: "mercadopago_payment_id", ignoreDuplicates: true }
+      { onConflict: "mercadopago_payment_id" }
     )
     .select("id")
     .maybeSingle();
 
   if (!contribution) {
-    console.info("[MP webhook] contribuição presente já existente", {
-      mercadopagoPaymentId,
-      giftId,
-    });
-    await reconcileRegularGift();
-    return;
+    const { data: ensured } = await supabase
+      .from("gift_contributions")
+      .select("id")
+      .eq("mercadopago_payment_id", mercadopagoPaymentId)
+      .maybeSingle();
+
+    if (!ensured) {
+      console.warn("[MP webhook] falha ao persistir contribuição presente", {
+        mercadopagoPaymentId,
+        giftId,
+      });
+    }
   }
 
   await reconcileRegularGift();
