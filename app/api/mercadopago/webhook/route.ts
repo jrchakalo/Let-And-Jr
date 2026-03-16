@@ -98,6 +98,66 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
 
   const supabase = createServerClient();
 
+  const parts = ref.split("|");
+  const giftId = parts[0];
+  const isCota = parts[1] === "cota";
+  const cotaQty = isCota ? parseInt(parts[2] ?? "1", 10) : 0;
+
+  async function reconcileRegularGift() {
+    await supabase
+      .from("gifts")
+      .update({
+        status: "PAID",
+        reserved_by_name: paymentData.payer?.first_name ?? "Anônimo",
+      })
+      .eq("id", giftId)
+      .in("status", ["AVAILABLE", "RESERVED", "PAID"]);
+
+    console.info("[MP webhook] presente reconciliado", {
+      mercadopagoPaymentId,
+      giftId,
+    });
+  }
+
+  async function reconcileCotaGift() {
+    const { data: gift } = await supabase
+      .from("gifts")
+      .select("price, cota_value")
+      .eq("id", giftId)
+      .single();
+
+    if (!gift?.cota_value) return;
+
+    const { data: contributions } = await supabase
+      .from("gift_contributions")
+      .select("quantity")
+      .eq("gift_id", giftId)
+      .in("contribution_type", ["MERCADOPAGO_COTA", "MANUAL_COTA"]);
+
+    const totalPaid = (contributions ?? []).reduce(
+      (sum, contribution) => sum + (contribution.quantity ?? 0),
+      0
+    );
+    const totalCotas = Math.ceil(gift.price / gift.cota_value);
+    const nowComplete = totalPaid >= totalCotas;
+
+    await supabase
+      .from("gifts")
+      .update({
+        cotas_paid: totalPaid,
+        reserved_by_name: paymentData.payer?.first_name ?? "Anônimo",
+        ...(nowComplete ? { status: "PAID" } : {}),
+      })
+      .eq("id", giftId);
+
+    console.info("[MP webhook] cota reconciliada", {
+      mercadopagoPaymentId,
+      giftId,
+      totalPaid,
+      nowComplete,
+    });
+  }
+
   const { data: existing } = await supabase
     .from("gift_contributions")
     .select("id")
@@ -108,18 +168,20 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
     console.info("[MP webhook] pagamento já processado", {
       mercadopagoPaymentId,
     });
+
+    if (isCota) {
+      await reconcileCotaGift();
+    } else {
+      await reconcileRegularGift();
+    }
+
     return;
   }
-
-  const parts = ref.split("|");
-  const giftId = parts[0];
-  const isCota = parts[1] === "cota";
-  const cotaQty = isCota ? parseInt(parts[2] ?? "1", 10) : 0;
 
   if (isCota && cotaQty > 0) {
     const { data: gift } = await supabase
       .from("gifts")
-      .select("cotas_paid, price, cota_value")
+      .select("price, cota_value")
       .eq("id", giftId)
       .single();
 
@@ -152,27 +214,16 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
           mercadopagoPaymentId,
           giftId,
         });
+        await reconcileCotaGift();
         return;
       }
 
-      const newPaid = (gift.cotas_paid ?? 0) + cotaQty;
-      const totalCotas = Math.ceil(gift.price / gift.cota_value);
-      const nowComplete = newPaid >= totalCotas;
-
-      await supabase
-        .from("gifts")
-        .update({
-          cotas_paid: newPaid,
-          reserved_by_name: paymentData.payer?.first_name ?? "Anônimo",
-          ...(nowComplete ? { status: "PAID" } : {}),
-        })
-        .eq("id", giftId);
+      await reconcileCotaGift();
 
       console.info("[MP webhook] cota processada", {
         mercadopagoPaymentId,
         giftId,
         cotaQty,
-        nowComplete,
       });
     }
 
@@ -207,17 +258,11 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
       mercadopagoPaymentId,
       giftId,
     });
+    await reconcileRegularGift();
     return;
   }
 
-  await supabase
-    .from("gifts")
-    .update({
-      status: "PAID",
-      reserved_by_name: paymentData.payer?.first_name ?? "Anônimo",
-    })
-    .eq("id", giftId)
-    .in("status", ["AVAILABLE", "RESERVED"]);
+  await reconcileRegularGift();
 
   console.info("[MP webhook] presente processado", {
     mercadopagoPaymentId,

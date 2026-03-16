@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
           pending: `${baseUrl}/presentes?status=pending&gift=${giftId}`,
         },
         auto_return: "approved",
-        notification_url: `${baseUrl}/api/mercadopago/webhook`,
+        notification_url: `${baseUrl}/api/mercadopago/webhook?source_news=webhooks`,
         external_reference: gift.is_cota ? `${giftId}|cota|${itemQuantity}` : giftId,
         statement_descriptor: "LETICIA E JUNIOR",
       },
