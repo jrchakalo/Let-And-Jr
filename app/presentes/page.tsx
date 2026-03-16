@@ -639,11 +639,50 @@ function PresentesContent() {
   const [pixCopied, setPixCopied] = useState(false);
   const searchParams = useSearchParams();
 
-  const mpStatus = searchParams.get("status");
-  const mpGiftId = searchParams.get("gift");
+  const rawMpStatus = searchParams.get("status") ?? searchParams.get("collection_status");
+  const rawMpReference =
+    searchParams.get("gift") ?? searchParams.get("external_reference");
+
+  const mpStatus = useMemo<"success" | "failure" | "pending" | null>(() => {
+    const normalized = (rawMpStatus ?? "").toLowerCase();
+
+    if (!normalized) return null;
+    if (normalized === "success" || normalized === "approved") return "success";
+    if (normalized === "pending" || normalized === "in_process" || normalized === "inprocess") {
+      return "pending";
+    }
+    if (
+      normalized === "failure" ||
+      normalized === "rejected" ||
+      normalized === "cancelled" ||
+      normalized === "canceled" ||
+      normalized === "denied"
+    ) {
+      return "failure";
+    }
+
+    return null;
+  }, [rawMpStatus]);
+
+  const mpGiftId = useMemo(() => {
+    if (!rawMpReference) return null;
+    return rawMpReference.split("|")[0] ?? null;
+  }, [rawMpReference]);
+
   const mpPaymentId = searchParams.get("payment_id");
-  const mpKind = searchParams.get("kind");
-  const mpQtyRaw = searchParams.get("qty");
+  const mpKind = useMemo(() => {
+    const explicitKind = searchParams.get("kind");
+    if (explicitKind) return explicitKind;
+    if (rawMpReference?.includes("|cota|")) return "cota";
+    return "gift";
+  }, [rawMpReference, searchParams]);
+  const mpQtyRaw = useMemo(() => {
+    const explicitQty = searchParams.get("qty");
+    if (explicitQty) return explicitQty;
+    if (!rawMpReference) return null;
+    const parts = rawMpReference.split("|");
+    return parts[2] ?? null;
+  }, [rawMpReference, searchParams]);
   const [paymentBannerStatus, setPaymentBannerStatus] = useState<
     "success" | "failure" | "pending" | null
   >(null);
@@ -713,7 +752,17 @@ function PresentesContent() {
     const clearUrlTimer = window.setTimeout(() => {
       const url = new URL(window.location.href);
       url.searchParams.delete("status");
+      url.searchParams.delete("collection_status");
+      url.searchParams.delete("collection_id");
       url.searchParams.delete("gift");
+      url.searchParams.delete("external_reference");
+      url.searchParams.delete("payment_id");
+      url.searchParams.delete("payment_type");
+      url.searchParams.delete("merchant_order_id");
+      url.searchParams.delete("preference_id");
+      url.searchParams.delete("site_id");
+      url.searchParams.delete("processing_mode");
+      url.searchParams.delete("merchant_account_id");
       url.searchParams.delete("kind");
       url.searchParams.delete("qty");
       window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
