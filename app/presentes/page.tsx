@@ -639,9 +639,24 @@ function PresentesContent() {
   const [pixCopied, setPixCopied] = useState(false);
   const searchParams = useSearchParams();
 
-  const rawMpStatus = searchParams.get("status") ?? searchParams.get("collection_status");
-  const rawMpReference =
-    searchParams.get("gift") ?? searchParams.get("external_reference");
+  const [mpReturnParams] = useState(() => {
+    const rawStatus = searchParams.get("status") ?? searchParams.get("collection_status");
+    const rawReference =
+      searchParams.get("gift") ?? searchParams.get("external_reference");
+    const rawPaymentId =
+      searchParams.get("payment_id") ?? searchParams.get("collection_id");
+
+    return {
+      rawStatus,
+      rawReference,
+      rawPaymentId,
+      rawKind: searchParams.get("kind"),
+      rawQty: searchParams.get("qty"),
+    };
+  });
+
+  const rawMpStatus = mpReturnParams.rawStatus;
+  const rawMpReference = mpReturnParams.rawReference;
 
   const mpStatus = useMemo<"success" | "failure" | "pending" | null>(() => {
     const normalized = (rawMpStatus ?? "").toLowerCase();
@@ -669,21 +684,20 @@ function PresentesContent() {
     return rawMpReference.split("|")[0] ?? null;
   }, [rawMpReference]);
 
-  const mpPaymentId =
-    searchParams.get("payment_id") ?? searchParams.get("collection_id");
+  const mpPaymentId = mpReturnParams.rawPaymentId;
   const mpKind = useMemo(() => {
-    const explicitKind = searchParams.get("kind");
+    const explicitKind = mpReturnParams.rawKind;
     if (explicitKind) return explicitKind;
     if (rawMpReference?.includes("|cota|")) return "cota";
     return "gift";
-  }, [rawMpReference, searchParams]);
+  }, [mpReturnParams.rawKind, rawMpReference]);
   const mpQtyRaw = useMemo(() => {
-    const explicitQty = searchParams.get("qty");
+    const explicitQty = mpReturnParams.rawQty;
     if (explicitQty) return explicitQty;
     if (!rawMpReference) return null;
     const parts = rawMpReference.split("|");
     return parts[2] ?? null;
-  }, [rawMpReference, searchParams]);
+  }, [mpReturnParams.rawQty, rawMpReference]);
   const [paymentBannerStatus, setPaymentBannerStatus] = useState<
     "success" | "failure" | "pending" | null
   >(null);
@@ -802,42 +816,66 @@ function PresentesContent() {
   useEffect(() => {
     if (!mpPaymentId) return;
 
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        const res = await fetch(`/api/mercadopago/webhook?type=payment&id=${encodeURIComponent(mpPaymentId)}`, {
+    let canceled = false;
+    let attempts = 0;
+    const maxAttempts = 18;
+    const intervalMs = 5000;
+
+    const pollApproval = async () => {
+      if (canceled) return;
+
+      const res = await fetch(
+        `/api/mercadopago/webhook?type=payment&id=${encodeURIComponent(mpPaymentId)}`,
+        {
           method: "GET",
-        });
-        const payload = (await res.json().catch(() => null)) as
-          | {
-              approved?: boolean;
-              giftId?: string | null;
-              isCota?: boolean;
-            }
-          | null;
-
-        if (payload?.approved) {
-          const qtyParsed = mpQtyRaw ? Number.parseInt(mpQtyRaw, 10) : 1;
-          const qty = Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 1;
-          const resolvedGiftId = payload.giftId ?? mpGiftId;
-          const resolvedGift = resolvedGiftId
-            ? gifts.find((item) => item.id === resolvedGiftId)
-            : null;
-          const giftName = resolvedGift?.name ?? "presente";
-          const isCotaPayment = payload.isCota ?? mpKind === "cota";
-
-          setPaymentBannerStatus("success");
-          setThankYouMessage(
-            isCotaPayment
-              ? `Obrigado! Sua contribuição de ${qty} cota${qty > 1 ? "s" : ""} para "${giftName}" foi registrada com carinho.`
-              : `Obrigado! Seu presente "${giftName}" foi registrado com carinho.`
-          );
         }
+      );
+      const payload = (await res.json().catch(() => null)) as
+        | {
+            approved?: boolean;
+            giftId?: string | null;
+            isCota?: boolean;
+          }
+        | null;
 
+      if (payload?.approved) {
+        const qtyParsed = mpQtyRaw ? Number.parseInt(mpQtyRaw, 10) : 1;
+        const qty = Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 1;
+        const resolvedGiftId = payload.giftId ?? mpGiftId;
+        const resolvedGift = resolvedGiftId
+          ? gifts.find((item) => item.id === resolvedGiftId)
+          : null;
+        const giftName = resolvedGift?.name ?? "presente";
+        const isCotaPayment = payload.isCota ?? mpKind === "cota";
+
+        setPaymentBannerStatus("success");
+        setThankYouMessage(
+          isCotaPayment
+            ? `Obrigado! Sua contribuição de ${qty} cota${qty > 1 ? "s" : ""} para "${giftName}" foi registrada com carinho.`
+            : `Obrigado! Seu presente "${giftName}" foi registrado com carinho.`
+        );
         await fetchGifts(false);
-      })();
-    }, 600);
+        return;
+      }
 
-    return () => window.clearTimeout(timer);
+      attempts += 1;
+      await fetchGifts(false);
+
+      if (attempts < maxAttempts && !canceled) {
+        window.setTimeout(() => {
+          void pollApproval();
+        }, intervalMs);
+      }
+    };
+
+    const initialTimer = window.setTimeout(() => {
+      void pollApproval();
+    }, 300);
+
+    return () => {
+      canceled = true;
+      window.clearTimeout(initialTimer);
+    };
   }, [fetchGifts, gifts, mpGiftId, mpKind, mpPaymentId, mpQtyRaw]);
 
   useEffect(() => {
@@ -962,7 +1000,7 @@ function PresentesContent() {
         {paymentBannerStatus === "pending" && (
           <div className="w-full bg-yellow-50 border-b border-yellow-200 py-4 px-6 text-center">
             <p className="text-yellow-800 text-sm font-display">
-              Pagamento pendente. Você será notificado quando for aprovado.
+              Estamos verificando seu pagamento. Assim que houver confirmação, atualizaremos esta página automaticamente.
             </p>
           </div>
         )}
