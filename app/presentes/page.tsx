@@ -57,7 +57,7 @@ function GiftCard({
   return (
     <div
       className={`flex flex-col border border-navy/10 bg-white relative ${
-        unavailable && !cota ? "opacity-60" : ""
+        unavailable ? "opacity-60" : ""
       }`}
     >
       {/* Photo */}
@@ -669,7 +669,8 @@ function PresentesContent() {
     return rawMpReference.split("|")[0] ?? null;
   }, [rawMpReference]);
 
-  const mpPaymentId = searchParams.get("payment_id");
+  const mpPaymentId =
+    searchParams.get("payment_id") ?? searchParams.get("collection_id");
   const mpKind = useMemo(() => {
     const explicitKind = searchParams.get("kind");
     if (explicitKind) return explicitKind;
@@ -800,7 +801,6 @@ function PresentesContent() {
 
   useEffect(() => {
     if (!mpPaymentId) return;
-    if (mpStatus !== "success" && mpStatus !== "pending") return;
 
     const timer = window.setTimeout(() => {
       void (async () => {
@@ -838,7 +838,7 @@ function PresentesContent() {
     }, 600);
 
     return () => window.clearTimeout(timer);
-  }, [fetchGifts, gifts, mpGiftId, mpKind, mpPaymentId, mpQtyRaw, mpStatus]);
+  }, [fetchGifts, gifts, mpGiftId, mpKind, mpPaymentId, mpQtyRaw]);
 
   useEffect(() => {
     if (mpStatus !== "success") return;
