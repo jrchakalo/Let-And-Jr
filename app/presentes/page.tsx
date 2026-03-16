@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -702,6 +702,27 @@ function PresentesContent() {
     "success" | "failure" | "pending" | null
   >(null);
   const [thankYouMessage, setThankYouMessage] = useState<string | null>(null);
+  const [showPaymentThankYouModal, setShowPaymentThankYouModal] = useState(false);
+  const paymentThankYouShownRef = useRef(false);
+
+  const buildPaymentThankYouMessage = useCallback(
+    (isCotaPayment: boolean, giftName: string) => {
+      if (isCotaPayment) {
+        return `Você acabou de contribuir com a nossa meta para ${giftName}. Agradecemos, do fundo do coração, pelo carinho com a gente!`;
+      }
+
+      return `Você acabou de nos presentear com ${giftName}. Agradecemos, do fundo do coração, pelo carinho com a gente!`;
+    },
+    []
+  );
+
+  const openPaymentThankYou = useCallback((message: string) => {
+    if (paymentThankYouShownRef.current) return;
+    paymentThankYouShownRef.current = true;
+    setThankYouMessage(message);
+    setPaymentBannerStatus("success");
+    setShowPaymentThankYouModal(true);
+  }, []);
 
   const fetchGifts = useCallback(async (showLoader = true) => {
     if (showLoader) setLoading(true);
@@ -799,19 +820,16 @@ function PresentesContent() {
     const gift = gifts.find((item) => item.id === mpGiftId);
     if (gift?.status !== "PAID") return;
 
-    setPaymentBannerStatus("success");
-
     const qtyParsed = mpQtyRaw ? Number.parseInt(mpQtyRaw, 10) : 1;
     const qty = Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 1;
     const isCota = mpKind === "cota";
     const giftName = gift.name;
 
-    const message = isCota
-      ? `Obrigado! Sua contribuição de ${qty} cota${qty > 1 ? "s" : ""} para "${giftName}" foi registrada com carinho.`
-      : `Obrigado! Seu presente "${giftName}" foi registrado com carinho.`;
-
-    setThankYouMessage(message);
-  }, [gifts, mpGiftId, mpKind, mpQtyRaw, mpStatus]);
+    const cotaLabel = qty > 1 ? `${giftName} (${qty} cotas)` : giftName;
+    openPaymentThankYou(
+      buildPaymentThankYouMessage(isCota, isCota ? cotaLabel : giftName)
+    );
+  }, [buildPaymentThankYouMessage, gifts, mpGiftId, mpKind, mpQtyRaw, mpStatus, openPaymentThankYou]);
 
   useEffect(() => {
     if (!mpPaymentId) return;
@@ -848,11 +866,12 @@ function PresentesContent() {
         const giftName = resolvedGift?.name ?? "presente";
         const isCotaPayment = payload.isCota ?? mpKind === "cota";
 
-        setPaymentBannerStatus("success");
-        setThankYouMessage(
-          isCotaPayment
-            ? `Obrigado! Sua contribuição de ${qty} cota${qty > 1 ? "s" : ""} para "${giftName}" foi registrada com carinho.`
-            : `Obrigado! Seu presente "${giftName}" foi registrado com carinho.`
+        const cotaLabel = qty > 1 ? `${giftName} (${qty} cotas)` : giftName;
+        openPaymentThankYou(
+          buildPaymentThankYouMessage(
+            isCotaPayment,
+            isCotaPayment ? cotaLabel : giftName
+          )
         );
         await fetchGifts(false);
         return;
@@ -876,7 +895,7 @@ function PresentesContent() {
       canceled = true;
       window.clearTimeout(initialTimer);
     };
-  }, [fetchGifts, gifts, mpGiftId, mpKind, mpPaymentId, mpQtyRaw]);
+  }, [buildPaymentThankYouMessage, fetchGifts, gifts, mpGiftId, mpKind, mpPaymentId, mpQtyRaw, openPaymentThankYou]);
 
   useEffect(() => {
     if (mpStatus !== "success") return;
@@ -887,12 +906,11 @@ function PresentesContent() {
     const gift = mpGiftId ? gifts.find((item) => item.id === mpGiftId) : null;
     const giftName = gift?.name ?? "presente";
 
-    const message = isCota
-      ? `Obrigado! Sua contribuição de ${qty} cota${qty > 1 ? "s" : ""} para "${giftName}" foi registrada com carinho.`
-      : `Obrigado! Seu presente "${giftName}" foi registrado com carinho.`;
-
-    setThankYouMessage(message);
-  }, [gifts, mpGiftId, mpKind, mpQtyRaw, mpStatus]);
+    const cotaLabel = qty > 1 ? `${giftName} (${qty} cotas)` : giftName;
+    openPaymentThankYou(
+      buildPaymentThankYouMessage(isCota, isCota ? cotaLabel : giftName)
+    );
+  }, [buildPaymentThankYouMessage, gifts, mpGiftId, mpKind, mpQtyRaw, mpStatus, openPaymentThankYou]);
 
   function handleGiftUpdated(updated: Gift) {
     setGifts((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
@@ -913,6 +931,23 @@ function PresentesContent() {
           onClose={() => setSelectedGift(null)}
           onGiftUpdated={handleGiftUpdated}
         />
+      )}
+
+      {showPaymentThankYouModal && thankYouMessage && (
+        <div className="fixed inset-0 z-50 bg-navy/60 flex items-end md:items-center justify-center px-0 md:px-4">
+          <div className="bg-cream w-full md:max-w-md md:rounded-none border border-navy/15 shadow-2xl p-6 flex flex-col gap-5">
+            <p className="font-display text-navy text-base text-center">Obrigado!</p>
+            <p className="text-navy/70 text-sm text-center leading-relaxed">
+              {thankYouMessage}
+            </p>
+            <button
+              onClick={() => setShowPaymentThankYouModal(false)}
+              className="w-full border border-navy/30 text-navy py-3 text-xs tracking-[0.2em] uppercase hover:bg-navy/5 transition-colors"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
       )}
 
       {showPixModal && (
@@ -1002,11 +1037,6 @@ function PresentesContent() {
             <p className="text-yellow-800 text-sm font-display">
               Estamos verificando seu pagamento. Assim que houver confirmação, atualizaremos esta página automaticamente.
             </p>
-          </div>
-        )}
-        {thankYouMessage && (
-          <div className="w-full bg-green-50 border-b border-green-200 py-4 px-6 text-center">
-            <p className="text-green-900 text-sm font-display">{thankYouMessage}</p>
           </div>
         )}
 
