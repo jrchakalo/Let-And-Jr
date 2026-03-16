@@ -118,6 +118,51 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
   const isCota = parts[1] === "cota";
   const cotaQty = isCota ? parseInt(parts[2] ?? "1", 10) : 0;
 
+  async function ensureContribution(payload: {
+    gift_id: string;
+    contributor_name: string;
+    contributor_email: string | null;
+    contribution_type:
+      | "MERCADOPAGO_GIFT"
+      | "MERCADOPAGO_COTA"
+      | "MANUAL_CLAIM"
+      | "STORE_CONFIRM"
+      | "MANUAL_COTA";
+    quantity: number;
+    amount: number | null;
+    status: "CONFIRMED";
+    mercadopago_payment_id: string;
+  }) {
+    const insertRes = await supabase.from("gift_contributions").insert(payload).select("id").maybeSingle();
+
+    if (!insertRes.error && insertRes.data) {
+      return true;
+    }
+
+    if (insertRes.error) {
+      const uniqueConflict =
+        insertRes.error.code === "23505" ||
+        insertRes.error.message.toLowerCase().includes("duplicate");
+
+      if (!uniqueConflict) {
+        console.error("[MP webhook] erro ao inserir contribuição", {
+          mercadopagoPaymentId,
+          giftId,
+          error: insertRes.error,
+        });
+        return false;
+      }
+    }
+
+    const { data: existingContribution } = await supabase
+      .from("gift_contributions")
+      .select("id")
+      .eq("mercadopago_payment_id", mercadopagoPaymentId)
+      .maybeSingle();
+
+    return Boolean(existingContribution);
+  }
+
   async function reconcileRegularGift() {
     await supabase
       .from("gifts")
@@ -201,39 +246,24 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
       .single();
 
     if (gift && gift.cota_value) {
-      const { data: contribution } = await supabase
-        .from("gift_contributions")
-        .upsert(
-          {
-            gift_id: giftId,
-            contributor_name: contributorName,
-            contributor_email: contributorEmail,
-            contribution_type: "MERCADOPAGO_COTA",
-            quantity: cotaQty,
-            amount: paymentData.transaction_amount
-              ? Number(paymentData.transaction_amount)
-              : Number(gift.cota_value) * cotaQty,
-            status: "CONFIRMED",
-            mercadopago_payment_id: mercadopagoPaymentId,
-          },
-          { onConflict: "mercadopago_payment_id" }
-        )
-        .select("id")
-        .maybeSingle();
+      const contributionPersisted = await ensureContribution({
+        gift_id: giftId,
+        contributor_name: contributorName,
+        contributor_email: contributorEmail,
+        contribution_type: "MERCADOPAGO_COTA",
+        quantity: cotaQty,
+        amount: paymentData.transaction_amount
+          ? Number(paymentData.transaction_amount)
+          : Number(gift.cota_value) * cotaQty,
+        status: "CONFIRMED",
+        mercadopago_payment_id: mercadopagoPaymentId,
+      });
 
-      if (!contribution) {
-        const { data: ensured } = await supabase
-          .from("gift_contributions")
-          .select("id")
-          .eq("mercadopago_payment_id", mercadopagoPaymentId)
-          .maybeSingle();
-
-        if (!ensured) {
-          console.warn("[MP webhook] falha ao persistir contribuição cota", {
-            mercadopagoPaymentId,
-            giftId,
-          });
-        }
+      if (!contributionPersisted) {
+        console.warn("[MP webhook] falha ao persistir contribuição cota", {
+          mercadopagoPaymentId,
+          giftId,
+        });
       }
 
       await reconcileCotaGift();
@@ -248,39 +278,24 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
     return;
   }
 
-  const { data: contribution } = await supabase
-    .from("gift_contributions")
-    .upsert(
-      {
-        gift_id: giftId,
-        contributor_name: contributorName,
-        contributor_email: contributorEmail,
-        contribution_type: "MERCADOPAGO_GIFT",
-        quantity: 1,
-        amount: paymentData.transaction_amount
-          ? Number(paymentData.transaction_amount)
-          : null,
-        status: "CONFIRMED",
-        mercadopago_payment_id: mercadopagoPaymentId,
-      },
-      { onConflict: "mercadopago_payment_id" }
-    )
-    .select("id")
-    .maybeSingle();
+  const contributionPersisted = await ensureContribution({
+    gift_id: giftId,
+    contributor_name: contributorName,
+    contributor_email: contributorEmail,
+    contribution_type: "MERCADOPAGO_GIFT",
+    quantity: 1,
+    amount: paymentData.transaction_amount
+      ? Number(paymentData.transaction_amount)
+      : null,
+    status: "CONFIRMED",
+    mercadopago_payment_id: mercadopagoPaymentId,
+  });
 
-  if (!contribution) {
-    const { data: ensured } = await supabase
-      .from("gift_contributions")
-      .select("id")
-      .eq("mercadopago_payment_id", mercadopagoPaymentId)
-      .maybeSingle();
-
-    if (!ensured) {
-      console.warn("[MP webhook] falha ao persistir contribuição presente", {
-        mercadopagoPaymentId,
-        giftId,
-      });
-    }
+  if (!contributionPersisted) {
+    console.warn("[MP webhook] falha ao persistir contribuição presente", {
+      mercadopagoPaymentId,
+      giftId,
+    });
   }
 
   await reconcileRegularGift();

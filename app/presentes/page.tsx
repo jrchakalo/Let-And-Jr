@@ -714,6 +714,8 @@ function PresentesContent() {
       const url = new URL(window.location.href);
       url.searchParams.delete("status");
       url.searchParams.delete("gift");
+      url.searchParams.delete("kind");
+      url.searchParams.delete("qty");
       window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
     }, 400);
 
@@ -726,6 +728,26 @@ function PresentesContent() {
       window.clearTimeout(hideBannerTimer);
     };
   }, [mpStatus]);
+
+  useEffect(() => {
+    if (mpStatus !== "pending" || !mpGiftId) return;
+
+    const gift = gifts.find((item) => item.id === mpGiftId);
+    if (gift?.status !== "PAID") return;
+
+    setPaymentBannerStatus("success");
+
+    const qtyParsed = mpQtyRaw ? Number.parseInt(mpQtyRaw, 10) : 1;
+    const qty = Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 1;
+    const isCota = mpKind === "cota";
+    const giftName = gift.name;
+
+    const message = isCota
+      ? `Obrigado! Sua contribuição de ${qty} cota${qty > 1 ? "s" : ""} para "${giftName}" foi registrada com carinho.`
+      : `Obrigado! Seu presente "${giftName}" foi registrado com carinho.`;
+
+    setThankYouMessage(message);
+  }, [gifts, mpGiftId, mpKind, mpQtyRaw, mpStatus]);
 
   useEffect(() => {
     if (!mpPaymentId) return;
