@@ -34,22 +34,56 @@ function isValidMercadoPagoSignature(req: NextRequest) {
 
   const signatureHeader = req.headers.get("x-signature");
   const requestId = req.headers.get("x-request-id");
-  const dataId =
-    req.nextUrl.searchParams.get("data.id") ?? req.nextUrl.searchParams.get("id");
+  const dataIdFromData = req.nextUrl.searchParams.get("data.id");
+  const dataIdFromId = req.nextUrl.searchParams.get("id");
+  const dataId = dataIdFromData ?? dataIdFromId;
 
-  if (!signatureHeader || !requestId || !dataId) {
+  if (!signatureHeader || !dataId) {
+    console.warn("[MP webhook] assinatura ausente/incompleta", {
+      hasSignature: Boolean(signatureHeader),
+      hasRequestId: Boolean(requestId),
+      hasDataId: Boolean(dataId),
+    });
     return false;
   }
 
   const { ts, v1 } = parseSignatureHeader(signatureHeader);
   if (!ts || !v1) return false;
 
-  const manifest = `id:${dataId.toLowerCase()};request-id:${requestId};ts:${ts};`;
-  const expectedV1 = createHmac("sha256", secret)
-    .update(manifest)
-    .digest("hex");
+  const candidates = new Set<string>();
+  if (dataIdFromData) {
+    candidates.add(dataIdFromData);
+    candidates.add(dataIdFromData.toLowerCase());
+  }
+  if (dataIdFromId) {
+    candidates.add(dataIdFromId);
+    candidates.add(dataIdFromId.toLowerCase());
+  }
 
-  return secureEquals(expectedV1, v1);
+  for (const candidate of candidates) {
+    const manifests = requestId
+      ? [
+          `id:${candidate};request-id:${requestId};ts:${ts};`,
+          `id:${candidate};ts:${ts};`,
+        ]
+      : [`id:${candidate};ts:${ts};`];
+
+    for (const manifest of manifests) {
+      const expectedV1 = createHmac("sha256", secret)
+        .update(manifest)
+        .digest("hex");
+
+      if (secureEquals(expectedV1, v1)) {
+        return true;
+      }
+    }
+  }
+
+  console.warn("[MP webhook] assinatura inválida", {
+    hasDataDotId: Boolean(dataIdFromData),
+    hasId: Boolean(dataIdFromId),
+  });
+  return false;
 }
 
 async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["get"]>>) {
@@ -71,6 +105,9 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
     .maybeSingle();
 
   if (existing) {
+    console.info("[MP webhook] pagamento já processado", {
+      mercadopagoPaymentId,
+    });
     return;
   }
 
@@ -111,6 +148,10 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
         .maybeSingle();
 
       if (!contribution) {
+        console.info("[MP webhook] contribuição cota já existente", {
+          mercadopagoPaymentId,
+          giftId,
+        });
         return;
       }
 
@@ -126,6 +167,13 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
           ...(nowComplete ? { status: "PAID" } : {}),
         })
         .eq("id", giftId);
+
+      console.info("[MP webhook] cota processada", {
+        mercadopagoPaymentId,
+        giftId,
+        cotaQty,
+        nowComplete,
+      });
     }
 
     return;
@@ -155,6 +203,10 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
     .maybeSingle();
 
   if (!contribution) {
+    console.info("[MP webhook] contribuição presente já existente", {
+      mercadopagoPaymentId,
+      giftId,
+    });
     return;
   }
 
@@ -166,6 +218,11 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
     })
     .eq("id", giftId)
     .in("status", ["AVAILABLE", "RESERVED"]);
+
+  console.info("[MP webhook] presente processado", {
+    mercadopagoPaymentId,
+    giftId,
+  });
 }
 
 async function processMercadoPagoNotification(
