@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import type { FamilyWithGuests, Guest } from "@/lib/types";
 import { createBrowserClient } from "@/lib/supabase/client";
+import { GuestDetailModal } from "@/components/admin/GuestDetailModal";
 
 // ─── Add Guest Modal ───────────────────────────────────────────────────
 function AddGuestModal({
@@ -80,9 +81,11 @@ function AddGuestModal({
 function FamilyCard({
   family,
   onRefresh,
+  onSelectGuest,
 }: {
   family: FamilyWithGuests;
   onRefresh: () => void;
+  onSelectGuest: (guest: Guest) => void;
 }) {
   const [showAddGuest, setShowAddGuest] = useState(false);
   const [editingName, setEditingName] = useState(false);
@@ -192,7 +195,8 @@ function FamilyCard({
         {(family.guests ?? []).map((g) => (
           <li
             key={g.id}
-            className="flex items-center justify-between text-sm gap-2"
+            className="flex items-center justify-between text-sm gap-2 cursor-pointer hover:bg-navy/5 px-2 py-1 rounded transition-colors"
+            onClick={() => onSelectGuest(g)}
           >
             <span className="text-navy/80">{g.name}</span>
             <div className="flex items-center gap-2">
@@ -206,7 +210,10 @@ function FamilyCard({
                   : "Recusou"}
               </span>
               <button
-                onClick={() => deleteGuest(g.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteGuest(g.id);
+                }}
                 className="text-red-300 hover:text-red-500 text-xs"
                 title="Remover convidado"
               >
@@ -245,6 +252,7 @@ export default function ConvidadosPage() {
   const [creating, setCreating] = useState(false);
   const [viewMode, setViewMode] = useState<"groups" | "list">("groups");
   const [listSort, setListSort] = useState<"name" | "group" | "status">("group");
+  const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null);
 
   const fetchFamilies = useCallback(async () => {
     setLoading(true);
@@ -308,6 +316,22 @@ export default function ConvidadosPage() {
       setNewFamilyName("");
     }
     setCreating(false);
+  }
+
+  async function handleStatusChange(
+    guestId: string,
+    newStatus: "CONFIRMED" | "DECLINED"
+  ) {
+    const res = await fetch(`/api/admin/guests/${guestId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rsvp_status: newStatus }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "Erro ao atualizar status");
+    }
+    await fetchFamilies();
   }
 
   // Stats
@@ -408,7 +432,7 @@ export default function ConvidadosPage() {
       ) : viewMode === "groups" ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {families.map((f) => (
-            <FamilyCard key={f.id} family={f} onRefresh={fetchFamilies} />
+            <FamilyCard key={f.id} family={f} onRefresh={fetchFamilies} onSelectGuest={setSelectedGuest} />
           ))}
         </div>
       ) : (
@@ -449,7 +473,11 @@ export default function ConvidadosPage() {
               </thead>
               <tbody>
                 {sortedGuests.map((g) => (
-                  <tr key={g.id} className="border-b border-navy/5 hover:bg-navy/3">
+                  <tr
+                    key={g.id}
+                    className="border-b border-navy/5 hover:bg-navy/3 cursor-pointer transition-colors"
+                    onClick={() => setSelectedGuest(g)}
+                  >
                     <td className="py-2 px-3 text-navy/80">{g.name}</td>
                     <td className="py-2 px-3 text-navy/50 text-xs">{g.groupName}</td>
                     <td className="py-2 px-3">
@@ -466,6 +494,14 @@ export default function ConvidadosPage() {
           </div>
         </div>
       )}
+
+      {/* Guest Detail Modal */}
+      <GuestDetailModal
+        guest={selectedGuest}
+        isOpen={selectedGuest !== null}
+        onClose={() => setSelectedGuest(null)}
+        onStatusChange={handleStatusChange}
+      />
     </div>
   );
 }
