@@ -64,11 +64,11 @@ export function GuestDetailModal({
 
   const getConfirmMessage = (): string => {
     if (guest.rsvp_status === "CONFIRMED") {
-      return "Você já confirmou presença. Deseja mudar sua resposta para \"Não poderei ir\"?";
+      return "Esta presença já estava confirmada. Deseja marcar como \"Não poderá ir\"?";
     } else if (guest.rsvp_status === "DECLINED") {
-      return "Você já indicou que não poderá comparecer. Deseja confirmar sua presença?";
+      return "Esta presença já estava marcada como \"Não poderá ir\". Deseja confirmar presença?";
     }
-    return "Deseja alterar a resposta?";
+    return "Deseja alterar o status?";
   };
 
   return (
