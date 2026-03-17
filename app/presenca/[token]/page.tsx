@@ -21,7 +21,7 @@ function statusColor(s: RsvpStatus) {
 
 function statusLabel(s: RsvpStatus) {
   if (s === "CONFIRMED") return "Presença confirmada";
-  if (s === "DECLINED") return "Não consigo comparecer";
+  if (s === "DECLINED") return "Não poderei ir";
   return "Aguardando resposta";
 }
 
@@ -42,7 +42,7 @@ function ConfirmChangeModal({
         <p className="font-display text-lg text-navy leading-relaxed text-center">
           {wasConfirmed
             ? "Você já confirmou presença."
-            : "Você já indicou que não poderá comparecer."}
+            : "Você já respondeu que não poderia ir."}
           <br />
           Deseja realmente alterar sua resposta?
         </p>
