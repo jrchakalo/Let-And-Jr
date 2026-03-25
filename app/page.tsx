@@ -120,10 +120,10 @@ export default function Home() {
               <br />
               Senhora Desatadora
               <br />
-              dos nós.
+              dos Nós.
             </p>
             <a
-              href="https://maps.google.com"
+              href="https://www.google.com/maps?q=-8.189875,-35.750197"
               target="_blank"
               rel="noopener noreferrer"
               className="mt-6 inline-block border border-navy/40 px-5 py-2 text-[10px] uppercase tracking-widest text-navy hover:bg-navy hover:text-cream transition-colors duration-200"
@@ -138,7 +138,7 @@ export default function Home() {
       <section className="w-full bg-cream pb-24 px-6 flex flex-col items-center">
         <div className="w-full max-w-3xl h-72 md:h-80 overflow-hidden border border-navy/10">
           <iframe
-            src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3659.8!2d-46.6!3d-23.5!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zQ2jDoWNhcmEgTm9zc2EgU2VuaG9yYQ!5e0!3m2!1spt-BR!2sbr!4v1620000000000!5m2!1spt-BR!2sbr"
+            src="https://www.google.com/maps?q=-8.189875,-35.750197&z=17&output=embed"
             width="100%"
             height="100%"
             style={{ border: 0 }}
