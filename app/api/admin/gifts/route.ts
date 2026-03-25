@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
     store_url?: string;
     is_cota?: boolean;
     cota_value?: number;
+    units_total?: number;
   };
   if (!body.name?.trim())
     return NextResponse.json({ error: "Nome obrigatório." }, { status: 400 });
@@ -43,6 +44,13 @@ export async function POST(req: NextRequest) {
     store_url: body.store_url || null,
     is_cota: body.is_cota ?? false,
   };
+
+  const requestedUnits = Number.isFinite(body.units_total)
+    ? Math.floor(Number(body.units_total))
+    : 1;
+  const unitsTotal = Math.max(1, requestedUnits);
+  payload.units_total = unitsTotal;
+  payload.units_remaining = unitsTotal;
 
   if (body.is_cota && body.cota_value !== undefined) {
     payload.cota_value = Number(body.cota_value);

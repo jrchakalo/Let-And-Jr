@@ -50,9 +50,13 @@ function GiftCard({
   onGift: (gift: Gift) => void;
 }) {
   const cota = cotaInfo(gift);
-  const unavailable =
-    gift.status !== "AVAILABLE" ||
-    (cota !== null && cota.remaining === 0);
+  const unitsRemaining = gift.units_remaining ?? 1;
+  const unavailable = cota
+    ? gift.status !== "AVAILABLE" || cota.remaining === 0
+    : gift.status === "PAID" ||
+      gift.status === "CLAIMED_MANUALLY" ||
+      gift.status === "RESERVED" ||
+      unitsRemaining <= 0;
 
   return (
     <div
@@ -123,7 +127,13 @@ function GiftCard({
             </div>
           </>
         ) : (
-          <p className="text-navy/70 text-xs">{fmtBRL(gift.price)}</p>
+          <>
+            <p className="text-navy/70 text-xs">{fmtBRL(gift.price)}</p>
+            <p className="text-[10px] text-navy/45 tracking-wide">
+              {unitsRemaining} unidade{unitsRemaining !== 1 ? "s" : ""} disponi
+              {unitsRemaining !== 1 ? "veis" : "vel"}
+            </p>
+          </>
         )}
 
         <button
@@ -401,6 +411,18 @@ function GiftModal({
               >
                 Contribuir via Pix / Cartão
               </button>
+              {gift.store_url && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setStep("store-name");
+                  }}
+                  className="text-[11px] text-navy/45 underline underline-offset-4 hover:text-navy/65 transition-colors"
+                >
+                  Deseja nós abençoar com o item completo? Clique aqui para ir para o produto na loja
+                </button>
+              )}
             </div>
           )}
 
@@ -412,6 +434,10 @@ function GiftModal({
                 {fmtBRL(cotaQty * gift.cota_value!)}
                 <br />
                 Você será redirecionado ao Mercado Pago.
+              </p>
+              <p className="text-[11px] text-navy/45 leading-relaxed text-center">
+                Se você quiser abençoar com o restante da cota e completar esse presente,
+                fala com a gente com carinho. O valor que ja foi contribuido sera enviado para voce.
               </p>
               <input
                 type="text"
@@ -464,7 +490,7 @@ function GiftModal({
                   }}
                   className="w-full border border-navy/30 text-navy py-4 text-xs tracking-[0.2em] uppercase hover:bg-navy/5 transition-colors"
                 >
-                  Comprar em uma loja online
+                  Comprar direto na Amazon
                 </button>
               )}
               <button
@@ -474,7 +500,7 @@ function GiftModal({
                 }}
                 className="w-full text-navy/50 underline underline-offset-4 py-2 text-xs tracking-wider text-center hover:text-navy transition-colors"
               >
-                Já comprei / Vou entregar em mãos
+                Irei entregar o presente pessoalmente
               </button>
             </>
           )}
@@ -521,7 +547,14 @@ function GiftModal({
           {step === "store-name" && (
             <form onSubmit={handleStoreReserve} className="flex flex-col gap-4">
               <p className="text-xs text-navy/60 text-center tracking-wide">
-                Vamos reservar este presente para você enquanto compra na loja.
+                {gift.is_cota && cota && cota.paid > 0
+                  ? "Vamos reservar este presente para você enquanto compra na loja. Quando concluir a compra, volte nesta aba para confirmar, por favor. Caso queira receber o valor que já foi contribuído até aqui, entre em contato conosco."
+                  : "Vamos reservar este presente para você enquanto compra na loja. Quando concluir a compra, volte nesta aba para confirmar, por favor."}
+              </p>
+              <p className="text-[11px] text-navy/50 text-center leading-relaxed">
+                Observação: a entrega será realizada automaticamente no nosso endereço.
+              </p>
+              <p className="text-xs text-navy/70 text-center tracking-wide">
                 Qual o seu nome?
               </p>
               <input
@@ -540,7 +573,9 @@ function GiftModal({
               </button>
               <button
                 type="button"
-                onClick={() => setStep("options")}
+                onClick={() =>
+                  setStep(gift.is_cota && gift.cota_value ? "cota-form" : "options")
+                }
                 className="text-navy/40 text-xs text-center hover:text-navy underline"
               >
                 Voltar
@@ -770,13 +805,9 @@ function PresentesContent() {
 
   useEffect(() => {
     if (mpStatus === "success" && mpGiftId) {
-      setGifts((prev) =>
-        prev.map((g) =>
-          g.id === mpGiftId ? { ...g, status: "PAID" as const } : g
-        )
-      );
+      void fetchGifts(false);
     }
-  }, [mpStatus, mpGiftId]);
+  }, [fetchGifts, mpStatus, mpGiftId]);
 
   useEffect(() => {
     if (mpStatus !== "success" && mpStatus !== "failure" && mpStatus !== "pending") {

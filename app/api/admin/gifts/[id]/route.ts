@@ -25,7 +25,19 @@ export async function PUT(
     is_cota?: boolean;
     cota_value?: number;
     status?: string;
+    units_total?: number;
   };
+  const supabase = createServerClient();
+  const { data: currentGift, error: currentGiftError } = await supabase
+    .from("gifts")
+    .select("id, status, units_total, units_remaining")
+    .eq("id", id)
+    .single();
+
+  if (currentGiftError || !currentGift) {
+    return NextResponse.json({ error: "Presente não encontrado." }, { status: 404 });
+  }
+
   const updates: Record<string, unknown> = {};
   if (body.name?.trim()) updates.name = body.name.trim();
   if (body.price !== undefined) updates.price = Number(body.price);
@@ -38,7 +50,29 @@ export async function PUT(
     }
   }
   if (body.status) updates.status = body.status;
-  const supabase = createServerClient();
+  if (body.status === "AVAILABLE") {
+    updates.reserved_by_name = null;
+    updates.reserved_at = null;
+  }
+
+  if (body.units_total !== undefined) {
+    const nextTotal = Math.max(1, Math.floor(Number(body.units_total) || 1));
+    const sold = Math.max(0, (currentGift.units_total ?? 1) - (currentGift.units_remaining ?? 1));
+    const nextRemaining = Math.max(0, nextTotal - sold);
+
+    updates.units_total = nextTotal;
+    updates.units_remaining = nextRemaining;
+
+    if (!body.status) {
+      if (nextRemaining <= 0 && currentGift.status !== "PAID") {
+        updates.status = "RESERVED";
+      }
+      if (nextRemaining > 0 && currentGift.status === "RESERVED") {
+        updates.status = "AVAILABLE";
+      }
+    }
+  }
+
   let { data, error } = await supabase
     .from("gifts")
     .update(updates)

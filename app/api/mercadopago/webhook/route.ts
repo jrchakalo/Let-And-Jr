@@ -168,14 +168,38 @@ async function persistApprovedPayment(paymentData: Awaited<ReturnType<Payment["g
   }
 
   async function reconcileRegularGift() {
+    const { data: gift } = await supabase
+      .from("gifts")
+      .select("units_total")
+      .eq("id", giftId)
+      .single();
+
+    if (!gift) return;
+
+    const { data: contributions } = await supabase
+      .from("gift_contributions")
+      .select("quantity")
+      .eq("gift_id", giftId)
+      .in("contribution_type", ["MERCADOPAGO_GIFT", "MANUAL_CLAIM", "STORE_CONFIRM"]);
+
+    const soldUnits = (contributions ?? []).reduce(
+      (sum, contribution) => sum + (contribution.quantity ?? 0),
+      0
+    );
+    const unitsTotal = Math.max(1, gift.units_total ?? 1);
+    const unitsRemaining = Math.max(0, unitsTotal - soldUnits);
+    const nextStatus = unitsRemaining <= 0 ? "PAID" : "AVAILABLE";
+
     await supabase
       .from("gifts")
       .update({
-        status: "PAID",
+        status: nextStatus,
+        units_remaining: unitsRemaining,
         reserved_by_name: contributorName,
+        reserved_at: new Date().toISOString(),
       })
       .eq("id", giftId)
-      .in("status", ["AVAILABLE", "RESERVED", "PAID"]);
+      .in("status", ["AVAILABLE", "RESERVED", "PAID", "CLAIMED_MANUALLY"]);
 
     console.info("[MP webhook] presente reconciliado", {
       mercadopagoPaymentId,

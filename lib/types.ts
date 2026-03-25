@@ -35,6 +35,10 @@ export interface Gift {
   cota_value: number | null;
   /** Number of quotas already paid */
   cotas_paid: number;
+  /** Total number of units available for this gift item */
+  units_total: number;
+  /** Units still available to be gifted */
+  units_remaining: number;
   reserved_by_name: string | null;
   reserved_at: string | null;
   created_at: string;

@@ -13,7 +13,7 @@ export async function POST(
 
   const { data: gift } = await supabase
     .from("gifts")
-    .select("status, reserved_by_name, price")
+    .select("status, reserved_by_name, price, units_remaining")
     .eq("id", id)
     .single();
 
@@ -21,16 +21,30 @@ export async function POST(
     return NextResponse.json({ error: "Presente não encontrado." }, { status: 404 });
   }
 
-  if (gift.status !== "RESERVED") {
+  if (!gift.units_remaining || gift.units_remaining <= 0) {
     return NextResponse.json(
-      { error: "Este presente não está com status RESERVED." },
+      { error: "Este presente não possui mais unidades disponíveis." },
       { status: 409 }
     );
   }
 
+  if (gift.status === "PAID" || gift.status === "CLAIMED_MANUALLY") {
+    return NextResponse.json(
+      { error: "Este presente já foi finalizado." },
+      { status: 409 }
+    );
+  }
+
+  const nextRemaining = Math.max(0, gift.units_remaining - 1);
+  const nextStatus = nextRemaining <= 0 ? "PAID" : "AVAILABLE";
+
   const { data, error } = await supabase
     .from("gifts")
-    .update({ status: "PAID" })
+    .update({
+      status: nextStatus,
+      units_remaining: nextRemaining,
+      reserved_at: new Date().toISOString(),
+    })
     .eq("id", id)
     .select()
     .single();

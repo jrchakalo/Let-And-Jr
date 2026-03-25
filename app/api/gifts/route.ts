@@ -11,6 +11,7 @@ export async function GET() {
     .from("gifts")
     .update({ status: "AVAILABLE", reserved_by_name: null, reserved_at: null })
     .eq("status", "RESERVED")
+    .gt("units_remaining", 0)
     .lt("reserved_at", cutoff);
 
   const { data, error } = await supabase

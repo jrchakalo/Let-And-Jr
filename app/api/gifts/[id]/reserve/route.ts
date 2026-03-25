@@ -28,17 +28,26 @@ export async function POST(
     return NextResponse.json({ error: "Presente não encontrado." }, { status: 404 });
   }
 
-  if (gift.status !== "AVAILABLE") {
+  if ((gift.units_remaining ?? 1) <= 0) {
     return NextResponse.json(
-      { error: "Este presente já foi reservado ou comprado." },
+      { error: "Este presente não possui mais unidades disponíveis." },
       { status: 409 }
     );
   }
 
+  if (gift.status === "PAID" || gift.status === "CLAIMED_MANUALLY") {
+    return NextResponse.json(
+      { error: "Este presente já foi finalizado." },
+      { status: 409 }
+    );
+  }
+
+  const shouldBlockCompletely = (gift.units_remaining ?? 1) === 1;
+
   const { data, error } = await supabase
     .from("gifts")
     .update({
-      status: "RESERVED",
+      status: shouldBlockCompletely ? "RESERVED" : "AVAILABLE",
       reserved_by_name: name.trim(),
       reserved_at: new Date().toISOString(),
     })

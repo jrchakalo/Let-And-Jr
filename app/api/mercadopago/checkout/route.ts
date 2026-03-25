@@ -83,11 +83,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Presente não encontrado." }, { status: 404 });
     }
 
-    if (gift.status !== "AVAILABLE") {
-      return NextResponse.json(
-        { error: "Este presente já foi reservado ou comprado." },
-        { status: 409 }
-      );
+    if (!gift.is_cota) {
+      if ((gift.units_remaining ?? 1) <= 0) {
+        return NextResponse.json(
+          { error: "Este presente não possui mais unidades disponíveis." },
+          { status: 409 }
+        );
+      }
+
+      if (gift.status === "PAID" || gift.status === "CLAIMED_MANUALLY") {
+        return NextResponse.json(
+          { error: "Este presente já foi finalizado." },
+          { status: 409 }
+        );
+      }
     }
 
     // For cota gifts, validate quantity and compute price

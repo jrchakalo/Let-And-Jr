@@ -22,6 +22,7 @@ function GiftFormModal({
     store_url: initial?.store_url ?? "",
     is_cota: initial?.is_cota ?? false,
     cota_value: initial?.cota_value?.toString() ?? "",
+    units_total: (initial?.units_total ?? 1).toString(),
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +50,7 @@ function GiftFormModal({
           store_url: form.store_url || null,
           is_cota: form.is_cota,
           cota_value: form.is_cota && form.cota_value ? parseFloat(form.cota_value) : null,
+          units_total: form.units_total ? parseInt(form.units_total, 10) : 1,
         }),
       });
       const data = await res.json();
@@ -120,6 +122,17 @@ function GiftFormModal({
               className="border border-navy/20 px-3 py-2 text-sm text-navy outline-none focus:border-navy"
             />
           )}
+          {!form.is_cota && (
+            <input
+              type="number"
+              placeholder="Quantidade de unidades"
+              value={form.units_total}
+              onChange={(e) => update("units_total", e.target.value)}
+              min="1"
+              step="1"
+              className="border border-navy/20 px-3 py-2 text-sm text-navy outline-none focus:border-navy"
+            />
+          )}
           {error && <p className="text-red-600 text-xs">{error}</p>}
           <div className="flex gap-2">
             <button
@@ -148,10 +161,14 @@ function GiftRow({
   gift,
   onEdit,
   onDelete,
+  onMarkAsPaid,
+  onCancelReserve,
 }: {
   gift: Gift;
   onEdit: () => void;
   onDelete: () => void;
+  onMarkAsPaid: () => void;
+  onCancelReserve: () => void;
 }) {
   const price = new Intl.NumberFormat("pt-BR", {
     style: "currency",
@@ -200,12 +217,33 @@ function GiftRow({
         {gift.is_cota && !gift.cota_value && (
           <span className="text-[10px] text-navy/40 uppercase tracking-widest">cota</span>
         )}
+        {!gift.is_cota && (
+          <span className="text-[10px] text-navy/40 uppercase tracking-widest">
+            unidades · {gift.units_remaining ?? 1}/{gift.units_total ?? 1} disponíveis
+          </span>
+        )}
       </td>
       <td className="py-3 pr-3 text-sm text-navy whitespace-nowrap">{price}</td>
       <td className={`py-3 pr-3 text-xs ${statusColor[gift.status]}`}>
         {statusLabel[gift.status]}
       </td>
       <td className="py-3 flex gap-2 justify-end">
+        {gift.status === "RESERVED" && (
+          <button
+            onClick={onMarkAsPaid}
+            className="text-xs text-green-700 hover:text-green-800 border border-green-200 px-2 py-1"
+          >
+            Marcar presenteado
+          </button>
+        )}
+        {gift.status === "RESERVED" && (
+          <button
+            onClick={onCancelReserve}
+            className="text-xs text-amber-700 hover:text-amber-800 border border-amber-200 px-2 py-1"
+          >
+            Cancelar reserva
+          </button>
+        )}
         <button
           onClick={onEdit}
           className="text-xs text-navy/50 hover:text-navy border border-navy/20 px-2 py-1"
@@ -312,6 +350,38 @@ export default function PresentesAdminPage() {
     if (!confirm("Remover este presente da lista?")) return;
     await fetch(`/api/admin/gifts/${giftId}`, { method: "DELETE" });
     setGifts((prev) => prev.filter((g) => g.id !== giftId));
+  }
+
+  async function handleMarkAsPaid(gift: Gift) {
+    const res = await fetch(`/api/admin/gifts/${gift.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "PAID" }),
+    });
+
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data) {
+      alert("Não foi possível atualizar o status deste presente.");
+      return;
+    }
+
+    handleSaved(data as Gift);
+  }
+
+  async function handleCancelReserve(gift: Gift) {
+    const res = await fetch(`/api/admin/gifts/${gift.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "AVAILABLE" }),
+    });
+
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data) {
+      alert("Não foi possível cancelar a reserva deste presente.");
+      return;
+    }
+
+    handleSaved(data as Gift);
   }
 
   const available = gifts.filter((g) => g.status === "AVAILABLE").length;
@@ -432,6 +502,8 @@ export default function PresentesAdminPage() {
                   gift={g}
                   onEdit={() => { setEditingGift(g); setShowForm(false); }}
                   onDelete={() => handleDelete(g.id)}
+                  onMarkAsPaid={() => handleMarkAsPaid(g)}
+                  onCancelReserve={() => handleCancelReserve(g)}
                 />
               ))}
             </tbody>
