@@ -5,7 +5,7 @@ import { useState } from "react";
 const EVENT = {
   title: "Casamento Letícia & Júnior",
   description: "Você está convidado para o casamento de Letícia e Júnior!",
-  location: "Chácara Nossa Senhora Desatadora dos Nós (-8.189875, -35.750197)",
+  location: "https://maps.app.goo.gl/svMZqRdS9tzEdzyx5",
   // 2026-06-04 15:30 BRT (UTC-3) = 18:30 UTC
   startUtc: "20260604T180000Z",
   endUtc: "20260605T023000Z",

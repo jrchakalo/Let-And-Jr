@@ -123,7 +123,7 @@ export default function Home() {
               dos Nós.
             </p>
             <a
-              href="https://www.google.com/maps?q=-8.189875,-35.750197"
+              href="https://maps.app.goo.gl/svMZqRdS9tzEdzyx5"
               target="_blank"
               rel="noopener noreferrer"
               className="mt-6 inline-block border border-navy/40 px-5 py-2 text-[10px] uppercase tracking-widest text-navy hover:bg-navy hover:text-cream transition-colors duration-200"
@@ -138,7 +138,7 @@ export default function Home() {
       <section className="w-full bg-cream pb-24 px-6 flex flex-col items-center">
         <div className="w-full max-w-3xl h-72 md:h-80 overflow-hidden border border-navy/10">
           <iframe
-            src="https://www.google.com/maps?q=-8.189875,-35.750197&z=17&output=embed"
+            src="https://www.google.com/maps?q=-8.190432,-35.749945&z=17&output=embed"
             width="100%"
             height="100%"
             style={{ border: 0 }}

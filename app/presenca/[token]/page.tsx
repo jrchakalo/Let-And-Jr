@@ -335,7 +335,7 @@ export default function PresencaPage({
                 dos Nós.
               </p>
               <a
-                href="https://www.google.com/maps?q=-8.189875,-35.750197"
+                href="https://maps.app.goo.gl/svMZqRdS9tzEdzyx5"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-5 inline-block border border-navy/40 px-5 py-2 text-[10px] uppercase tracking-widest text-navy hover:bg-navy hover:text-cream transition-colors duration-200"
