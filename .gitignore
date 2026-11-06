@@ -8,3 +8,10 @@ coverage/
 !.env.example
 !.env.local.example
 .env.local
+
+# Supabase CLI internals (contain project ref / pooler host)
+supabase/.temp/
+supabase/.branches/
+
+# Build artifacts
+tsconfig.tsbuildinfo
