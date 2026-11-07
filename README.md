@@ -97,7 +97,7 @@ Para colocar em produção, importe o repositório no painel da Vercel e preench
 
 ---
 
-*Desenvolvido com carinho para o casamento de Letícia e Júnior.*
+*Desenvolvido com carinho e ansiedade para o melhor dia da minha vida.*
 
 ## Autor
 
